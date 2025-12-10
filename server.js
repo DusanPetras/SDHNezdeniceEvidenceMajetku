@@ -1,6 +1,11 @@
 
-const express = require('express');
-const path = require('path');
+import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
 const app = express();
 
 // Port je v Azure přidělen automaticky přes process.env.PORT
@@ -10,7 +15,6 @@ const port = process.env.PORT || 3000;
 app.use(express.static(path.join(__dirname, 'dist')));
 
 // SPA Routing: Jakýkoliv jiný požadavek přesměruj na index.html
-// To zajistí, že funguje obnovení stránky (F5) na podstránkách
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'dist', 'index.html'));
 });
