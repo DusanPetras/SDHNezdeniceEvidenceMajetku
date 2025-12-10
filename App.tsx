@@ -2,98 +2,132 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { Asset, ViewMode, AssetCategory, AssetCondition, AssetLocation } from './types';
+import { Asset, ViewMode, AssetCategory, AssetCondition, AssetLocation, Notification } from './types';
 import { INITIAL_ASSETS, MOCK_MANAGERS } from './constants';
 import { AssetForm } from './components/AssetForm';
 import { AssetCard } from './components/AssetCard';
 import { Settings } from './components/Settings';
-import { IconFire, IconList, IconGrid, IconPlus, IconDownload, IconSearch, IconTrash, IconRotate, IconSettings, IconFilePdf, IconImage } from './components/Icons';
-
-// Storage Keys
-const STORAGE_KEYS = {
-  ASSETS: 'sdh_assets_data',
-  DELETED: 'sdh_deleted_data',
-  MANAGERS: 'sdh_conf_managers',
-  LOCATIONS: 'sdh_conf_locations',
-  CATEGORIES: 'sdh_conf_categories',
-  CONDITIONS: 'sdh_conf_conditions'
-};
-
-// Helper to load from local storage or return default
-const loadFromStorage = <T,>(key: string, defaultValue: T): T => {
-  const saved = localStorage.getItem(key);
-  if (saved) {
-    try {
-      return JSON.parse(saved);
-    } catch (e) {
-      console.error(`Error parsing storage for ${key}`, e);
-      return defaultValue;
-    }
-  }
-  return defaultValue;
-};
+import { NotificationCenter } from './components/NotificationCenter';
+import { IconFire, IconList, IconGrid, IconPlus, IconDownload, IconSearch, IconTrash, IconRotate, IconSettings, IconFilePdf, IconImage, IconBell } from './components/Icons';
+import * as dataService from './services/dataService';
 
 function App() {
-  // Initialize state from LocalStorage
-  const [assets, setAssets] = useState<Asset[]>(() => 
-    loadFromStorage(STORAGE_KEYS.ASSETS, INITIAL_ASSETS)
-  );
-  const [deletedAssets, setDeletedAssets] = useState<Asset[]>(() => 
-    loadFromStorage(STORAGE_KEYS.DELETED, [])
-  );
+  const [assets, setAssets] = useState<Asset[]>([]);
+  const [loading, setLoading] = useState(true);
   
-  // Configuration State (Settings) - also persisted
-  const [managers, setManagers] = useState<string[]>(() => 
-    loadFromStorage(STORAGE_KEYS.MANAGERS, MOCK_MANAGERS)
-  );
-  const [locations, setLocations] = useState<string[]>(() => 
-    loadFromStorage(STORAGE_KEYS.LOCATIONS, Object.values(AssetLocation))
-  );
-  const [categories, setCategories] = useState<string[]>(() => 
-    loadFromStorage(STORAGE_KEYS.CATEGORIES, Object.values(AssetCategory))
-  );
-  const [conditions, setConditions] = useState<string[]>(() => 
-    loadFromStorage(STORAGE_KEYS.CONDITIONS, Object.values(AssetCondition))
-  );
+  // Configuration State
+  const [managers, setManagers] = useState<string[]>(MOCK_MANAGERS);
+  const [locations, setLocations] = useState<string[]>(Object.values(AssetLocation));
+  const [categories, setCategories] = useState<string[]>(Object.values(AssetCategory));
+  const [conditions, setConditions] = useState<string[]>(Object.values(AssetCondition));
 
   const [viewMode, setViewMode] = useState<ViewMode>('LIST');
   const [selectedAssetId, setSelectedAssetId] = useState<string | null>(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [filterCategory, setFilterCategory] = useState<string>('ALL');
+  
+  // Notifications State
+  const [showNotifications, setShowNotifications] = useState(false);
 
-  // Persistence Effects - Save to LocalStorage whenever state changes
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.ASSETS, JSON.stringify(assets)), [assets]);
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.DELETED, JSON.stringify(deletedAssets)), [deletedAssets]);
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.MANAGERS, JSON.stringify(managers)), [managers]);
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.LOCATIONS, JSON.stringify(locations)), [locations]);
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.CATEGORIES, JSON.stringify(categories)), [categories]);
-  useEffect(() => localStorage.setItem(STORAGE_KEYS.CONDITIONS, JSON.stringify(conditions)), [conditions]);
+  // --- Data Loading ---
+  useEffect(() => {
+    const loadData = async () => {
+      setLoading(true);
+      try {
+        const fetchedAssets = await dataService.fetchAssets();
+        setAssets(fetchedAssets);
 
-  // Computed Values
-  const totalValue = assets.reduce((sum, a) => sum + a.price, 0);
+        // Load dynamic settings if you have them in DB
+        const fetchedManagers = await dataService.fetchSettingsList('MANAGER');
+        if (fetchedManagers.length > 0) setManagers(fetchedManagers);
+
+        const fetchedLocations = await dataService.fetchSettingsList('LOCATION');
+        if (fetchedLocations.length > 0) setLocations(fetchedLocations);
+
+        const fetchedCategories = await dataService.fetchSettingsList('CATEGORY');
+        if (fetchedCategories.length > 0) setCategories(fetchedCategories);
+
+        const fetchedConditions = await dataService.fetchSettingsList('CONDITION');
+        if (fetchedConditions.length > 0) setConditions(fetchedConditions);
+
+      } catch (error) {
+        console.error("Failed to load data", error);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
+
+  // --- Computed Values ---
+
+  const activeAssets = useMemo(() => assets.filter(a => !a.isDeleted), [assets]);
+  const deletedAssets = useMemo(() => assets.filter(a => a.isDeleted), [assets]);
+  const totalValue = activeAssets.reduce((sum, a) => sum + a.price, 0);
   
   const filteredAssets = useMemo(() => {
-    return assets.filter(asset => {
+    return activeAssets.filter(asset => {
       const matchesSearch = asset.name.toLowerCase().includes(searchTerm.toLowerCase()) || 
                             asset.inventoryNumber.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesCategory = filterCategory === 'ALL' || asset.category === filterCategory;
       return matchesSearch && matchesCategory;
     });
-  }, [assets, searchTerm, filterCategory]);
+  }, [activeAssets, searchTerm, filterCategory]);
 
-  const handleAddAsset = (newAssetData: Omit<Asset, 'id'>) => {
-    const newAsset: Asset = {
-      ...newAssetData,
-      id: Date.now().toString(),
-    };
-    setAssets(prev => [...prev, newAsset]);
-    setViewMode('LIST');
+  // --- Notification Logic ---
+  const notifications = useMemo<Notification[]>(() => {
+    const list: Notification[] = [];
+    const today = new Date();
+
+    activeAssets.forEach(asset => {
+      if (asset.nextServiceDate) {
+        const serviceDate = new Date(asset.nextServiceDate);
+        const diffTime = serviceDate.getTime() - today.getTime();
+        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+        if (diffDays < 0) {
+          list.push({
+            assetId: asset.id,
+            assetName: asset.name,
+            date: asset.nextServiceDate,
+            type: 'DANGER',
+            daysRemaining: diffDays
+          });
+        } else if (diffDays <= 30) {
+          list.push({
+            assetId: asset.id,
+            assetName: asset.name,
+            date: asset.nextServiceDate,
+            type: 'WARNING',
+            daysRemaining: diffDays
+          });
+        }
+      }
+    });
+    return list.sort((a, b) => a.daysRemaining - b.daysRemaining);
+  }, [activeAssets]);
+
+  // --- Handlers ---
+
+  const handleAddAsset = async (newAssetData: Omit<Asset, 'id'>) => {
+    try {
+      const savedAsset = await dataService.createAsset(newAssetData);
+      setAssets(prev => [savedAsset, ...prev]);
+      setViewMode('LIST');
+    } catch (e) {
+      alert("Chyba při ukládání: " + e);
+    }
   };
 
-  const handleUpdateAsset = (assetData: Omit<Asset, 'id'>) => {
+  const handleUpdateAsset = async (assetData: Omit<Asset, 'id'>) => {
     if (!selectedAssetId) return;
-    setAssets(prev => prev.map(a => a.id === selectedAssetId ? { ...assetData, id: selectedAssetId } : a));
-    setViewMode('DETAIL');
+    try {
+      const updatedAsset = await dataService.updateAsset(selectedAssetId, assetData);
+      setAssets(prev => prev.map(a => a.id === selectedAssetId ? updatedAsset : a));
+      setViewMode('DETAIL');
+    } catch (e) {
+      alert("Chyba při aktualizaci: " + e);
+    }
   };
 
   const handleEditClick = (asset: Asset) => {
@@ -101,42 +135,43 @@ function App() {
     setViewMode('EDIT');
   };
 
-  const handleDeleteAsset = (id: string) => {
-    // Find the asset in the current list
-    const assetToDelete = assets.find(a => a.id === id);
-    
-    if (assetToDelete) {
-      // 1. Add to trash
-      setDeletedAssets(prev => [assetToDelete, ...prev]);
-      // 2. Remove from active list
-      setAssets(prev => prev.filter(a => a.id !== id));
-      // 3. Reset view
+  const handleDeleteAsset = async (id: string) => {
+    try {
+      await dataService.deleteAssetSoft(id);
+      setAssets(prev => prev.map(a => a.id === id ? { ...a, isDeleted: true } : a));
       if (viewMode === 'DETAIL') {
          setViewMode('LIST');
          setSelectedAssetId(null);
       }
+    } catch (e) {
+      alert("Chyba při mazání: " + e);
     }
   };
 
-  // Helper to handle delete click in list view safely
   const onDeleteClick = (e: React.MouseEvent, asset: Asset) => {
-    e.stopPropagation(); // Stop row click
+    e.stopPropagation();
     e.preventDefault();
     if (window.confirm(`Opravdu smazat položku "${asset.name}"? (Lze obnovit z koše)`)) {
       handleDeleteAsset(asset.id);
     }
   };
 
-  const handleRestoreAsset = (id: string) => {
-    const assetToRestore = deletedAssets.find(a => a.id === id);
-    if (assetToRestore) {
-      setAssets(prev => [...prev, assetToRestore]);
-      setDeletedAssets(prev => prev.filter(a => a.id !== id));
+  const handleRestoreAsset = async (id: string) => {
+    try {
+      await dataService.restoreAsset(id);
+      setAssets(prev => prev.map(a => a.id === id ? { ...a, isDeleted: false } : a));
+    } catch (e) {
+      alert("Chyba při obnově: " + e);
     }
   };
 
-  const handlePermanentDelete = (id: string) => {
-    setDeletedAssets(prev => prev.filter(a => a.id !== id));
+  const handlePermanentDelete = async (id: string) => {
+    try {
+      await dataService.deleteAssetPermanent(id);
+      setAssets(prev => prev.filter(a => a.id !== id));
+    } catch (e) {
+      alert("Chyba při trvalém smazání: " + e);
+    }
   };
 
   // --- Export / Import Handlers ---
@@ -145,15 +180,8 @@ function App() {
     const data = {
       timestamp: new Date().toISOString(),
       assets,
-      deletedAssets,
-      config: {
-        managers,
-        locations,
-        categories,
-        conditions
-      }
+      config: { managers, locations, categories, conditions }
     };
-
     const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement("a");
@@ -162,7 +190,6 @@ function App() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    URL.revokeObjectURL(url);
   };
 
   const handleBackupImport = (file: File) => {
@@ -170,35 +197,23 @@ function App() {
     reader.onload = (e) => {
       try {
         const json = JSON.parse(e.target?.result as string);
-        
-        // Basic validation
-        if (!json.assets || !json.config) {
-          throw new Error("Neplatný formát souboru zálohy.");
-        }
-
-        if (window.confirm("POZOR: Tato akce přepíše veškerá aktuální data daty ze zálohy. Chcete pokračovat?")) {
-          setAssets(json.assets || []);
-          setDeletedAssets(json.deletedAssets || []);
-          setManagers(json.config.managers || MOCK_MANAGERS);
-          setLocations(json.config.locations || []);
-          setCategories(json.config.categories || []);
-          setConditions(json.config.conditions || []);
-          alert("Data byla úspěšně obnovena.");
+        if (json.assets) {
+           // This is just a UI import visualization if we are using Supabase, 
+           // real import to DB would require batch inserts logic in dataService.
+           // For now, we alert the user that this feature is client-side view only or needs implementation.
+           alert("Import ze souboru do databáze vyžaduje implementaci dávkového nahrání.");
         }
       } catch (err) {
         console.error(err);
-        alert("Chyba při načítání souboru: " + (err as Error).message);
       }
     };
     reader.readAsText(file);
   };
 
-  // --- File Exports (CSV/PDF) ---
+  // --- CSV / PDF Exports ---
 
   const handleExportCSV = () => {
-    const headers = ['ID', 'Název', 'Kategorie', 'Umístění', 'Stav', 'Cena', 'Správce', 'Ev. Číslo'];
-    
-    // Funkce pro bezpečné formátování hodnot do CSV
+    const headers = ['ID', 'Název', 'Kategorie', 'Umístění', 'Stav', 'Cena', 'Správce', 'Ev. Číslo', 'Příští revize'];
     const escapeCsvValue = (val: string | number) => {
       const stringVal = String(val);
       if (stringVal.includes(',') || stringVal.includes('"') || stringVal.includes('\n')) {
@@ -206,8 +221,7 @@ function App() {
       }
       return stringVal;
     };
-
-    const rows = assets.map(a => [
+    const rows = activeAssets.map(a => [
       escapeCsvValue(a.id), 
       escapeCsvValue(a.name), 
       escapeCsvValue(a.category), 
@@ -215,20 +229,18 @@ function App() {
       escapeCsvValue(a.condition), 
       escapeCsvValue(a.price), 
       escapeCsvValue(a.manager), 
-      escapeCsvValue(a.inventoryNumber)
+      escapeCsvValue(a.inventoryNumber),
+      escapeCsvValue(a.nextServiceDate || '')
     ]);
-    
     const csvContent = [headers.join(','), ...rows.map(r => r.join(','))].join('\n');
     const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
-    
     const link = document.createElement("a");
     link.href = url;
     link.download = `sdh_majetek_export_${new Date().toISOString().split('T')[0]}.csv`;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    URL.revokeObjectURL(url);
   };
 
   const handleExportPDF = () => {
@@ -236,13 +248,11 @@ function App() {
     const normalize = (str: string | number) => {
         return String(str).normalize("NFD").replace(/[\u0300-\u036f]/g, "");
     };
-
     doc.setFontSize(18);
     doc.text("Seznam majetku - SDH Nezdenice", 14, 22);
     doc.setFontSize(11);
     doc.text(`Datum exportu: ${new Date().toLocaleDateString('cs-CZ')}`, 14, 30);
-    
-    const tableColumn = ["Nazev", "Ev.C.", "Kategorie", "Umisteni", "Stav", "Cena", "Spravce"];
+    const tableColumn = ["Nazev", "Ev.C.", "Kategorie", "Umisteni", "Stav", "Cena", "Revize"];
     const tableRows = filteredAssets.map(asset => [
       normalize(asset.name),
       normalize(asset.inventoryNumber),
@@ -250,22 +260,22 @@ function App() {
       normalize(asset.location),
       normalize(asset.condition),
       `${asset.price} Kc`,
-      normalize(asset.manager)
+      asset.nextServiceDate ? new Date(asset.nextServiceDate).toLocaleDateString('cs-CZ') : '-'
     ]);
-
     autoTable(doc, {
       startY: 35,
       head: [tableColumn],
       body: tableRows,
       theme: 'grid',
-      headStyles: { fillColor: [190, 18, 60] }, // SDH Primary Red
+      headStyles: { fillColor: [190, 18, 60] },
       styles: { fontSize: 9 },
     });
-
     doc.save(`sdh_majetek_report_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
   const renderContent = () => {
+    if (loading) return <div className="text-center py-20">Načítám data...</div>;
+
     if (viewMode === 'FORM') {
       return (
         <AssetForm 
@@ -315,10 +325,10 @@ function App() {
     if (viewMode === 'SETTINGS') {
       return (
         <Settings 
-          managers={managers} setManagers={setManagers}
-          locations={locations} setLocations={setLocations}
-          categories={categories} setCategories={setCategories}
-          conditions={conditions} setConditions={setConditions}
+          managers={managers} setManagers={(v) => { setManagers(v); v.forEach(i => dataService.addSettingsItem('MANAGER', i).catch(()=>{})); }}
+          locations={locations} setLocations={(v) => { setLocations(v); v.forEach(i => dataService.addSettingsItem('LOCATION', i).catch(()=>{})); }}
+          categories={categories} setCategories={(v) => { setCategories(v); v.forEach(i => dataService.addSettingsItem('CATEGORY', i).catch(()=>{})); }}
+          conditions={conditions} setConditions={(v) => { setConditions(v); v.forEach(i => dataService.addSettingsItem('CONDITION', i).catch(()=>{})); }}
           onClose={() => setViewMode('LIST')}
           onExportBackup={handleBackupExport}
           onImportBackup={handleBackupImport}
@@ -571,7 +581,7 @@ function App() {
   return (
     <div className="min-h-screen flex flex-col bg-gray-100 font-sans">
       {/* Header */}
-      <header className="bg-fire-700 text-white shadow-lg no-print">
+      <header className="bg-fire-700 text-white shadow-lg no-print relative z-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-2 cursor-pointer" onClick={() => {
             setViewMode('LIST');
@@ -586,6 +596,31 @@ function App() {
             </div>
           </div>
           <div className="flex items-center gap-4">
+             {/* Notification Bell */}
+             <div className="relative">
+               <button 
+                 onClick={() => setShowNotifications(!showNotifications)}
+                 className="p-2 text-white hover:bg-fire-600 rounded-full transition-colors relative"
+                 title="Upozornění"
+               >
+                 <IconBell className="w-6 h-6" />
+                 {notifications.length > 0 && (
+                   <span className="absolute top-1 right-1 bg-yellow-400 text-fire-800 text-[10px] font-bold w-4 h-4 flex items-center justify-center rounded-full border border-fire-700">
+                     {notifications.length}
+                   </span>
+                 )}
+               </button>
+               <NotificationCenter 
+                  notifications={notifications} 
+                  isOpen={showNotifications} 
+                  onClose={() => setShowNotifications(false)}
+                  onSelect={(id) => {
+                    setSelectedAssetId(id);
+                    setViewMode('DETAIL');
+                  }}
+               />
+             </div>
+
              <button 
               onClick={() => setViewMode('SETTINGS')}
               className="p-2 text-white hover:bg-fire-600 rounded-full transition-colors"
@@ -613,11 +648,16 @@ function App() {
             </div>
             <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-blue-500">
               <div className="text-gray-500 text-sm font-medium uppercase">Počet položek</div>
-              <div className="text-2xl font-bold text-gray-900 mt-1">{assets.length}</div>
+              <div className="text-2xl font-bold text-gray-900 mt-1">{activeAssets.length}</div>
             </div>
-            <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-yellow-500">
-              <div className="text-gray-500 text-sm font-medium uppercase">Vyžaduje údržbu</div>
-              <div className="text-2xl font-bold text-gray-900 mt-1">2 <span className="text-sm font-normal text-gray-400">(Simulováno)</span></div>
+            <div className="bg-white p-6 rounded-lg shadow-sm border-l-4 border-orange-500">
+              <div className="text-gray-500 text-sm font-medium uppercase">Upozornění na údržbu</div>
+              <div className="text-2xl font-bold text-gray-900 mt-1">
+                {notifications.length} 
+                <span className="text-sm font-normal text-gray-400 ml-2">
+                  (Revize/Servis)
+                </span>
+              </div>
             </div>
           </div>
         )}

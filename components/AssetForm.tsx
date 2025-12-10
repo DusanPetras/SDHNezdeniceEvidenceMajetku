@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Asset } from '../types';
-import { IconSparkles, IconUpload, IconImage, IconTrash, IconLink } from './Icons';
+import { IconSparkles, IconTrash, IconLink, IconImage } from './Icons';
 import { generateAssetDescription } from '../services/geminiService';
 import { processImageFile } from '../services/imageUtils';
 
@@ -35,18 +35,19 @@ export const AssetForm: React.FC<AssetFormProps> = ({
     description: '',
     imageUrl: '',
     inventoryNumber: '',
+    nextServiceDate: '', // Initialize empty
   });
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [useUrlInput, setUseUrlInput] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   // Load initial data if editing
   useEffect(() => {
     if (initialData) {
       const { id, ...rest } = initialData;
       setFormData(rest);
-      // If initial data has a very long URL (likely Base64) or standard URL, just display it.
     }
   }, [initialData]);
 
@@ -60,24 +61,30 @@ export const AssetForm: React.FC<AssetFormProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave(formData);
+    onSave({
+      ...formData,
+      originalFile: selectedFile || undefined
+    });
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
+      setSelectedFile(file);
+      
+      // Create preview
       try {
         const resizedImage = await processImageFile(file);
         setFormData(prev => ({ ...prev, imageUrl: resizedImage }));
       } catch (error) {
         console.error("Chyba při zpracování obrázku:", error);
-        alert("Nepodařilo se zpracovat obrázek.");
       }
     }
   };
 
   const clearImage = () => {
     setFormData(prev => ({ ...prev, imageUrl: '' }));
+    setSelectedFile(null);
     if (fileInputRef.current) {
         fileInputRef.current.value = '';
     }
@@ -183,6 +190,32 @@ export const AssetForm: React.FC<AssetFormProps> = ({
           </div>
         </div>
 
+        {/* Next Service Date - NEW */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t pt-4">
+            <div className="md:col-span-1">
+                 <label className="block text-sm font-medium text-gray-700">Příští revize / údržba</label>
+                 <input 
+                  type="date" 
+                  className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 focus:border-fire-500 focus:outline-none focus:ring-fire-500"
+                  value={formData.nextServiceDate || ''}
+                  onChange={(e) => setFormData({...formData, nextServiceDate: e.target.value})}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                   Datum, kdy se zobrazí upozornění na údržbu.
+                </p>
+            </div>
+            <div className="md:col-span-2">
+                 <label className="block text-sm font-medium text-gray-700">Poznámky k údržbě</label>
+                 <input 
+                  type="text" 
+                  className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 focus:border-fire-500 focus:outline-none focus:ring-fire-500"
+                  value={formData.maintenanceNotes || ''}
+                  onChange={(e) => setFormData({...formData, maintenanceNotes: e.target.value})}
+                  placeholder="Např. Výměna oleje, tlaková zkouška..."
+                />
+            </div>
+        </div>
+
         {/* Image Upload Section */}
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-2">Fotografie</label>
@@ -215,7 +248,7 @@ export const AssetForm: React.FC<AssetFormProps> = ({
                 >
                   <IconImage className="w-8 h-8 text-gray-400 mb-2" />
                   <span className="text-sm text-gray-500">Klikněte pro nahrání fotografie</span>
-                  <span className="text-xs text-gray-400 mt-1">(Automaticky zmenšeno pro uložení)</span>
+                  <span className="text-xs text-gray-400 mt-1">(Uloženo na Cloud)</span>
                 </div>
               )}
               

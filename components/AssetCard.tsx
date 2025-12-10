@@ -1,7 +1,7 @@
 
 import React, { useState } from 'react';
 import { Asset } from '../types';
-import { IconArrowLeft, IconPrinter, IconSparkles, IconEdit, IconTrash, IconImage } from './Icons';
+import { IconArrowLeft, IconPrinter, IconSparkles, IconEdit, IconTrash, IconImage, IconAlert, IconCalendar } from './Icons';
 import { generateMaintenanceAdvice } from '../services/geminiService';
 
 interface AssetCardProps {
@@ -25,6 +25,22 @@ export const AssetCard: React.FC<AssetCardProps> = ({ asset, onBack, onDelete, o
     setAdvice(result);
     setLoadingAdvice(false);
   };
+
+  // Check for alerts
+  const checkAlert = (): { type: 'WARNING' | 'DANGER' | null, text: string } => {
+    if (!asset.nextServiceDate) return { type: null, text: '' };
+    
+    const today = new Date();
+    const serviceDate = new Date(asset.nextServiceDate);
+    const diffTime = serviceDate.getTime() - today.getTime();
+    const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+
+    if (diffDays < 0) return { type: 'DANGER', text: `Termín revize/údržby propadl před ${Math.abs(diffDays)} dny!` };
+    if (diffDays <= 30) return { type: 'WARNING', text: `Blíží se termín revize/údržby za ${diffDays} dní.` };
+    return { type: null, text: '' };
+  };
+
+  const alertStatus = checkAlert();
 
   return (
     <div className="max-w-4xl mx-auto">
@@ -61,6 +77,16 @@ export const AssetCard: React.FC<AssetCardProps> = ({ asset, onBack, onDelete, o
           </button>
         </div>
       </div>
+
+      {/* Alert Banner */}
+      {alertStatus.type && (
+          <div className={`mb-4 p-4 rounded-lg border flex items-center gap-3 shadow-sm no-print
+            ${alertStatus.type === 'DANGER' ? 'bg-red-50 border-red-200 text-red-800' : 'bg-orange-50 border-orange-200 text-orange-800'}`}
+          >
+              <IconAlert className="w-6 h-6 flex-shrink-0" />
+              <span className="font-bold">{alertStatus.text}</span>
+          </div>
+      )}
 
       {/* Card Content */}
       <div className="bg-white shadow-xl rounded-lg overflow-hidden border border-gray-200 card-print">
@@ -130,6 +156,21 @@ export const AssetCard: React.FC<AssetCardProps> = ({ asset, onBack, onDelete, o
                 <span className="font-medium text-gray-900">{asset.price.toLocaleString('cs-CZ')} Kč</span>
               </div>
             </div>
+
+            {asset.nextServiceDate && (
+                 <div className="mb-6 bg-blue-50 p-3 rounded border border-blue-100 flex items-start gap-3">
+                    <IconCalendar className="w-5 h-5 text-blue-600 mt-0.5" />
+                    <div>
+                        <span className="block text-xs text-blue-600 uppercase font-bold mb-1">Plánovaná revize / Údržba</span>
+                        <div className="font-medium text-gray-900">
+                            {new Date(asset.nextServiceDate).toLocaleDateString('cs-CZ')}
+                        </div>
+                        {asset.maintenanceNotes && (
+                            <p className="text-sm text-gray-600 mt-1">{asset.maintenanceNotes}</p>
+                        )}
+                    </div>
+                 </div>
+            )}
 
             <div className="mb-6">
               <span className="block text-xs text-gray-500 uppercase mb-1">Popis</span>

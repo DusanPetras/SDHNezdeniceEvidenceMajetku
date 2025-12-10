@@ -28,9 +28,9 @@ export enum AssetLocation {
 export interface Asset {
   id: string;
   name: string;
-  category: string; // Changed from Enum to string to allow dynamic settings
-  location: string; // Changed from Enum to string
-  condition: string; // Changed from Enum to string
+  category: string; 
+  location: string; 
+  condition: string; 
   purchaseDate: string;
   price: number;
   manager: string; 
@@ -38,6 +38,17 @@ export interface Asset {
   imageUrl: string;
   inventoryNumber: string;
   maintenanceNotes?: string;
+  isDeleted?: boolean;
+  originalFile?: File; // For upload handling only, not DB
+  nextServiceDate?: string; // New field for alerts
+}
+
+export interface Notification {
+  assetId: string;
+  assetName: string;
+  date: string;
+  type: 'WARNING' | 'DANGER'; // Warning = upcoming, Danger = overdue
+  daysRemaining: number;
 }
 
 export type ViewMode = 'LIST' | 'GRID' | 'DETAIL' | 'FORM' | 'EDIT' | 'TRASH' | 'SETTINGS';
