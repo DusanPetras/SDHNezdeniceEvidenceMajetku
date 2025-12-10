@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { Asset } from '../types';
+import { Asset, UserRole } from '../types';
 import { IconArrowLeft, IconPrinter, IconSparkles, IconEdit, IconTrash, IconImage, IconAlert, IconCalendar } from './Icons';
 import { generateMaintenanceAdvice } from '../services/geminiService';
 
@@ -9,9 +9,10 @@ interface AssetCardProps {
   onBack: () => void;
   onDelete: (id: string) => void;
   onEdit: (asset: Asset) => void;
+  userRole: UserRole;
 }
 
-export const AssetCard: React.FC<AssetCardProps> = ({ asset, onBack, onDelete, onEdit }) => {
+export const AssetCard: React.FC<AssetCardProps> = ({ asset, onBack, onDelete, onEdit, userRole }) => {
   const [advice, setAdvice] = useState<string | null>(null);
   const [loadingAdvice, setLoadingAdvice] = useState(false);
 
@@ -53,22 +54,26 @@ export const AssetCard: React.FC<AssetCardProps> = ({ asset, onBack, onDelete, o
           <IconArrowLeft className="w-5 h-5 mr-2" /> Zpět na seznam
         </button>
         <div className="space-x-2">
-           <button 
-            onClick={() => onEdit(asset)}
-            className="px-4 py-2 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-sm font-medium inline-flex items-center"
-          >
-             <IconEdit className="w-4 h-4 mr-2" />
-             Upravit
-          </button>
-           <button 
-            onClick={() => {
-                if(window.confirm('Opravdu odstranit tuto položku?')) onDelete(asset.id);
-            }}
-            className="px-4 py-2 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm font-medium inline-flex items-center"
-          >
-             <IconTrash className="w-4 h-4 mr-2" />
-            Smazat
-          </button>
+           {userRole === 'ADMIN' && (
+             <>
+               <button 
+                onClick={() => onEdit(asset)}
+                className="px-4 py-2 bg-blue-100 text-blue-700 rounded hover:bg-blue-200 text-sm font-medium inline-flex items-center"
+              >
+                 <IconEdit className="w-4 h-4 mr-2" />
+                 Upravit
+              </button>
+               <button 
+                onClick={() => {
+                    if(window.confirm('Opravdu odstranit tuto položku?')) onDelete(asset.id);
+                }}
+                className="px-4 py-2 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm font-medium inline-flex items-center"
+              >
+                 <IconTrash className="w-4 h-4 mr-2" />
+                Smazat
+              </button>
+             </>
+           )}
           <button 
             onClick={handlePrint}
             className="px-4 py-2 bg-gray-800 text-white rounded hover:bg-gray-900 text-sm font-medium flex items-center inline-flex"

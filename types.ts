@@ -35,12 +35,11 @@ export interface Asset {
   price: number;
   manager: string; 
   description: string;
-  imageUrl: string;
+  imageUrl: string; // Base64 string or URL
   inventoryNumber: string;
   maintenanceNotes?: string;
   isDeleted?: boolean;
-  originalFile?: File; // For upload handling only, not DB
-  nextServiceDate?: string; // New field for alerts
+  nextServiceDate?: string;
 }
 
 export interface Notification {
@@ -52,3 +51,13 @@ export interface Notification {
 }
 
 export type ViewMode = 'LIST' | 'GRID' | 'DETAIL' | 'FORM' | 'EDIT' | 'TRASH' | 'SETTINGS';
+
+// --- Auth Types ---
+
+export type UserRole = 'ADMIN' | 'READER';
+
+export interface AppUser {
+  id: string;
+  username: string;
+  role: UserRole;
+}

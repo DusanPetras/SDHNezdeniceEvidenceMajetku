@@ -2,18 +2,22 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { jsPDF } from "jspdf";
 import autoTable from "jspdf-autotable";
-import { Asset, ViewMode, AssetCategory, AssetCondition, AssetLocation, Notification } from './types';
+import { Asset, ViewMode, AssetCategory, AssetCondition, AssetLocation, Notification, AppUser } from './types';
 import { INITIAL_ASSETS, MOCK_MANAGERS } from './constants';
 import { AssetForm } from './components/AssetForm';
 import { AssetCard } from './components/AssetCard';
 import { Settings } from './components/Settings';
 import { NotificationCenter } from './components/NotificationCenter';
+import { Login } from './components/Login';
 import { IconFire, IconList, IconGrid, IconPlus, IconDownload, IconSearch, IconTrash, IconRotate, IconSettings, IconFilePdf, IconImage, IconBell } from './components/Icons';
 import * as dataService from './services/dataService';
+import { isSupabaseConfigured } from './services/supabaseClient';
 
 function App() {
+  const [user, setUser] = useState<AppUser | null>(null);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [loading, setLoading] = useState(true);
+  const [configError, setConfigError] = useState(false);
   
   // Configuration State
   const [managers, setManagers] = useState<string[]>(MOCK_MANAGERS);
@@ -29,35 +33,71 @@ function App() {
   // Notifications State
   const [showNotifications, setShowNotifications] = useState(false);
 
-  // --- Data Loading ---
+  // Backup loading state
+  const [backupProcessing, setBackupProcessing] = useState(false);
+
+  // --- Auth & Init ---
+
   useEffect(() => {
-    const loadData = async () => {
-      setLoading(true);
+    // Check if user is already logged in (localStorage persistence)
+    const storedUser = localStorage.getItem('sdh_user');
+    if (storedUser) {
       try {
-        const fetchedAssets = await dataService.fetchAssets();
-        setAssets(fetchedAssets);
-
-        // Load dynamic settings if you have them in DB
-        const fetchedManagers = await dataService.fetchSettingsList('MANAGER');
-        if (fetchedManagers.length > 0) setManagers(fetchedManagers);
-
-        const fetchedLocations = await dataService.fetchSettingsList('LOCATION');
-        if (fetchedLocations.length > 0) setLocations(fetchedLocations);
-
-        const fetchedCategories = await dataService.fetchSettingsList('CATEGORY');
-        if (fetchedCategories.length > 0) setCategories(fetchedCategories);
-
-        const fetchedConditions = await dataService.fetchSettingsList('CONDITION');
-        if (fetchedConditions.length > 0) setConditions(fetchedConditions);
-
-      } catch (error) {
-        console.error("Failed to load data", error);
-      } finally {
-        setLoading(false);
+        setUser(JSON.parse(storedUser));
+      } catch (e) {
+        localStorage.removeItem('sdh_user');
       }
-    };
-    loadData();
+    }
+
+    if (!isSupabaseConfigured) {
+      setLoading(false);
+      setConfigError(true);
+      return;
+    }
   }, []);
+
+  // Load data when user is logged in
+  useEffect(() => {
+    if (user && isSupabaseConfigured) {
+      loadData();
+    }
+  }, [user]);
+
+  const loadData = async () => {
+    setLoading(true);
+    try {
+      const fetchedAssets = await dataService.fetchAssets();
+      setAssets(fetchedAssets);
+
+      const fetchedManagers = await dataService.fetchSettingsList('MANAGER');
+      if (fetchedManagers.length > 0) setManagers(fetchedManagers);
+
+      const fetchedLocations = await dataService.fetchSettingsList('LOCATION');
+      if (fetchedLocations.length > 0) setLocations(fetchedLocations);
+
+      const fetchedCategories = await dataService.fetchSettingsList('CATEGORY');
+      if (fetchedCategories.length > 0) setCategories(fetchedCategories);
+
+      const fetchedConditions = await dataService.fetchSettingsList('CONDITION');
+      if (fetchedConditions.length > 0) setConditions(fetchedConditions);
+
+    } catch (error) {
+      console.error("Failed to load data", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleLoginSuccess = (loggedInUser: AppUser) => {
+    setUser(loggedInUser);
+    localStorage.setItem('sdh_user', JSON.stringify(loggedInUser));
+  };
+
+  const handleLogout = () => {
+    setUser(null);
+    localStorage.removeItem('sdh_user');
+    setAssets([]);
+  };
 
   // --- Computed Values ---
 
@@ -176,35 +216,46 @@ function App() {
 
   // --- Export / Import Handlers ---
 
-  const handleBackupExport = () => {
-    const data = {
-      timestamp: new Date().toISOString(),
-      assets,
-      config: { managers, locations, categories, conditions }
-    };
-    const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement("a");
-    link.href = url;
-    link.download = `SDH_Zaloha_${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+  const handleBackupExport = async () => {
+    setBackupProcessing(true);
+    try {
+      // Fetch fresh complete data from server
+      const backupData = await dataService.getFullBackup();
+      
+      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement("a");
+      link.href = url;
+      link.download = `SDH_FullBackup_${new Date().toISOString().split('T')[0]}.json`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    } catch (err) {
+      console.error(err);
+      alert("Chyba při vytváření zálohy: " + err);
+    } finally {
+      setBackupProcessing(false);
+    }
   };
 
-  const handleBackupImport = (file: File) => {
+  const handleBackupImport = async (file: File) => {
+    if (!window.confirm("Pozor! Import sloučí data ze zálohy s aktuální databází. Existující záznamy se stejným ID budou přepsány. Chcete pokračovat?")) {
+      return;
+    }
+
+    setBackupProcessing(true);
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const json = JSON.parse(e.target?.result as string);
-        if (json.assets) {
-           // This is just a UI import visualization if we are using Supabase, 
-           // real import to DB would require batch inserts logic in dataService.
-           // For now, we alert the user that this feature is client-side view only or needs implementation.
-           alert("Import ze souboru do databáze vyžaduje implementaci dávkového nahrání.");
-        }
+        await dataService.restoreFullBackup(json);
+        alert("Obnova dat byla úspěšná! Aplikace nyní znovu načte data.");
+        await loadData(); // Reload UI
       } catch (err) {
         console.error(err);
+        alert("Chyba při importu dat: " + err);
+      } finally {
+        setBackupProcessing(false);
       }
     };
     reader.readAsText(file);
@@ -273,8 +324,34 @@ function App() {
     doc.save(`sdh_majetek_report_${new Date().toISOString().split('T')[0]}.pdf`);
   };
 
+  // --- Rendering ---
+
+  if (configError) {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4">
+        <div className="max-w-md w-full bg-white rounded-xl shadow-lg overflow-hidden border border-gray-200">
+          <div className="bg-fire-700 p-6 text-center">
+            <IconFire className="w-16 h-16 text-white mx-auto mb-4 opacity-90" />
+            <h1 className="text-2xl font-bold text-white">SDH Nezdenice</h1>
+          </div>
+          <div className="p-8 text-center">
+            <h2 className="text-lg font-bold text-gray-900 mb-4">Chybí konfigurace databáze</h2>
+            <p className="text-gray-600 text-sm mb-6">
+              Aplikace není propojena s Supabase. Zkontrolujte soubor <code>.env</code>.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Not logged in -> Show Login
+  if (!user) {
+    return <Login onLoginSuccess={handleLoginSuccess} />;
+  }
+
   const renderContent = () => {
-    if (loading) return <div className="text-center py-20">Načítám data...</div>;
+    if (loading) return <div className="text-center py-20 text-gray-500">Načítám data...</div>;
 
     if (viewMode === 'FORM') {
       return (
@@ -317,6 +394,7 @@ function App() {
             }}
             onDelete={handleDeleteAsset}
             onEdit={handleEditClick}
+            userRole={user.role}
           />
         );
       }
@@ -332,6 +410,7 @@ function App() {
           onClose={() => setViewMode('LIST')}
           onExportBackup={handleBackupExport}
           onImportBackup={handleBackupImport}
+          isProcessing={backupProcessing}
         />
       );
     }
@@ -433,18 +512,20 @@ function App() {
             
             <div className="w-px bg-gray-300 mx-1 h-8"></div>
 
-            <button 
-              onClick={() => setViewMode('TRASH')}
-              className="flex items-center px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 text-sm font-medium transition-colors relative"
-              title="Koš"
-            >
-              <IconTrash className="w-4 h-4" />
-              {deletedAssets.length > 0 && (
-                <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full">
-                  {deletedAssets.length}
-                </span>
-              )}
-            </button>
+            {user.role === 'ADMIN' && (
+              <button 
+                onClick={() => setViewMode('TRASH')}
+                className="flex items-center px-3 py-2 bg-gray-200 text-gray-700 rounded-md hover:bg-gray-300 text-sm font-medium transition-colors relative"
+                title="Koš"
+              >
+                <IconTrash className="w-4 h-4" />
+                {deletedAssets.length > 0 && (
+                  <span className="absolute -top-1 -right-1 bg-red-600 text-white text-[10px] w-4 h-4 flex items-center justify-center rounded-full">
+                    {deletedAssets.length}
+                  </span>
+                )}
+              </button>
+            )}
 
             <button 
               onClick={handleExportCSV}
@@ -460,12 +541,14 @@ function App() {
             >
               <IconFilePdf className="w-4 h-4 mr-2" /> PDF
             </button>
-            <button 
-              onClick={() => setViewMode('FORM')}
-              className="flex items-center px-4 py-2 bg-fire-600 text-white rounded-md hover:bg-fire-700 shadow-md transition-colors text-sm font-medium"
-            >
-              <IconPlus className="w-4 h-4 mr-2" /> Nový Majetek
-            </button>
+            {user.role === 'ADMIN' && (
+              <button 
+                onClick={() => setViewMode('FORM')}
+                className="flex items-center px-4 py-2 bg-fire-600 text-white rounded-md hover:bg-fire-700 shadow-md transition-colors text-sm font-medium"
+              >
+                <IconPlus className="w-4 h-4 mr-2" /> Nový Majetek
+              </button>
+            )}
           </div>
         </div>
 
@@ -485,7 +568,7 @@ function App() {
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Umístění</th>
                     <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Stav</th>
                     <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Cena</th>
-                    <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Akce</th>
+                    {user.role === 'ADMIN' && <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Akce</th>}
                   </tr>
                 </thead>
                 <tbody className="bg-white divide-y divide-gray-200">
@@ -501,7 +584,7 @@ function App() {
                       <td className="px-6 py-4 whitespace-nowrap">
                         <div className="flex items-center">
                            <div className="h-10 w-10 flex-shrink-0">
-                              <img className="h-10 w-10 rounded object-contain" src={asset.imageUrl} alt="" />
+                              <img className="h-10 w-10 rounded object-contain bg-gray-50" src={asset.imageUrl} alt="" />
                            </div>
                            <div className="ml-4">
                              <div className="text-sm font-medium text-gray-900">{asset.name}</div>
@@ -521,15 +604,18 @@ function App() {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 text-right">{asset.price.toLocaleString('cs-CZ')} Kč</td>
-                      <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                        <button 
-                          onClick={(e) => onDeleteClick(e, asset)}
-                          className="text-red-600 hover:text-red-900 p-2 relative z-10"
-                          title="Smazat do koše"
-                        >
-                          <IconTrash className="w-5 h-5" />
-                        </button>
-                      </td>
+                      
+                      {user.role === 'ADMIN' && (
+                        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+                          <button 
+                            onClick={(e) => onDeleteClick(e, asset)}
+                            className="text-red-600 hover:text-red-900 p-2 relative z-10"
+                            title="Smazat do koše"
+                          >
+                            <IconTrash className="w-5 h-5" />
+                          </button>
+                        </td>
+                      )}
                     </tr>
                   ))}
                 </tbody>
@@ -621,16 +707,27 @@ function App() {
                />
              </div>
 
-             <button 
-              onClick={() => setViewMode('SETTINGS')}
-              className="p-2 text-white hover:bg-fire-600 rounded-full transition-colors"
-              title="Nastavení"
-             >
-                <IconSettings className="w-6 h-6" />
-             </button>
-             <div className="hidden md:block text-right">
-               <span className="text-xs block opacity-70 uppercase tracking-wide">Přihlášen</span>
-               <span className="text-sm font-medium">Admin</span>
+             {user.role === 'ADMIN' && (
+                <button 
+                  onClick={() => setViewMode('SETTINGS')}
+                  className="p-2 text-white hover:bg-fire-600 rounded-full transition-colors"
+                  title="Nastavení"
+                >
+                    <IconSettings className="w-6 h-6" />
+                </button>
+             )}
+             
+             <div className="text-right border-l border-fire-600 pl-4 ml-2">
+               <div className="text-xs opacity-70 uppercase tracking-wide">Přihlášen</div>
+               <div className="flex items-center gap-2">
+                  <span className="text-sm font-medium">{user.username}</span>
+                  <button 
+                    onClick={handleLogout}
+                    className="text-xs text-fire-200 hover:text-white underline ml-1"
+                  >
+                    Odhlásit
+                  </button>
+               </div>
              </div>
           </div>
         </div>

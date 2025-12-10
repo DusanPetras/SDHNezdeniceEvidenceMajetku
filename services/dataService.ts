@@ -4,7 +4,6 @@ import { Asset } from '../types';
 
 const ASSET_TABLE = 'assets';
 const SETTINGS_TABLE = 'settings_lists';
-const BUCKET_NAME = 'asset-images';
 
 // Helper to map DB columns (snake_case) to App types (camelCase)
 const mapAssetFromDb = (dbAsset: any): Asset => ({
@@ -27,6 +26,9 @@ const mapAssetFromDb = (dbAsset: any): Asset => ({
 // Helper to map App types to DB columns
 const mapAssetToDb = (asset: Partial<Asset>) => {
   const dbObj: any = {};
+  // Only map ID if it exists (for updates/restores)
+  if (asset.id !== undefined) dbObj.id = asset.id;
+  
   if (asset.name !== undefined) dbObj.name = asset.name;
   if (asset.category !== undefined) dbObj.category = asset.category;
   if (asset.location !== undefined) dbObj.location = asset.location;
@@ -46,6 +48,8 @@ const mapAssetToDb = (asset: Partial<Asset>) => {
 // --- Assets ---
 
 export const fetchAssets = async (): Promise<Asset[]> => {
+  if (!supabase) return [];
+
   const { data, error } = await supabase
     .from(ASSET_TABLE)
     .select('*')
@@ -53,20 +57,15 @@ export const fetchAssets = async (): Promise<Asset[]> => {
 
   if (error) {
     console.error('Error fetching assets:', error);
-    throw error;
+    return [];
   }
-  return data.map(mapAssetFromDb);
+  return (data || []).map(mapAssetFromDb);
 };
 
 export const createAsset = async (asset: Omit<Asset, 'id'>): Promise<Asset> => {
-  let imageUrl = asset.imageUrl;
+  if (!supabase) throw new Error("Supabase not configured");
 
-  // Upload image if provided as File
-  if (asset.originalFile) {
-    imageUrl = await uploadImage(asset.originalFile);
-  }
-
-  const dbData = mapAssetToDb({ ...asset, imageUrl });
+  const dbData = mapAssetToDb(asset);
   
   const { data, error } = await supabase
     .from(ASSET_TABLE)
@@ -79,13 +78,9 @@ export const createAsset = async (asset: Omit<Asset, 'id'>): Promise<Asset> => {
 };
 
 export const updateAsset = async (id: string, updates: Partial<Asset>): Promise<Asset> => {
-  let imageUrl = updates.imageUrl;
+  if (!supabase) throw new Error("Supabase not configured");
 
-  if (updates.originalFile) {
-    imageUrl = await uploadImage(updates.originalFile);
-  }
-
-  const dbData = mapAssetToDb({ ...updates, imageUrl });
+  const dbData = mapAssetToDb(updates);
 
   const { data, error } = await supabase
     .from(ASSET_TABLE)
@@ -99,6 +94,7 @@ export const updateAsset = async (id: string, updates: Partial<Asset>): Promise<
 };
 
 export const deleteAssetSoft = async (id: string): Promise<void> => {
+  if (!supabase) throw new Error("Supabase not configured");
   const { error } = await supabase
     .from(ASSET_TABLE)
     .update({ is_deleted: true })
@@ -107,6 +103,7 @@ export const deleteAssetSoft = async (id: string): Promise<void> => {
 };
 
 export const deleteAssetPermanent = async (id: string): Promise<void> => {
+  if (!supabase) throw new Error("Supabase not configured");
   const { error } = await supabase
     .from(ASSET_TABLE)
     .delete()
@@ -115,6 +112,7 @@ export const deleteAssetPermanent = async (id: string): Promise<void> => {
 };
 
 export const restoreAsset = async (id: string): Promise<void> => {
+  if (!supabase) throw new Error("Supabase not configured");
   const { error } = await supabase
     .from(ASSET_TABLE)
     .update({ is_deleted: false })
@@ -125,19 +123,21 @@ export const restoreAsset = async (id: string): Promise<void> => {
 // --- Settings Lists ---
 
 export const fetchSettingsList = async (type: string): Promise<string[]> => {
+  if (!supabase) return [];
+  
   const { data, error } = await supabase
     .from(SETTINGS_TABLE)
     .select('value')
     .eq('type', type);
   
   if (error) {
-    console.error(`Error fetching ${type}:`, error);
     return [];
   }
-  return data.map(item => item.value);
+  return (data || []).map(item => item.value);
 };
 
 export const addSettingsItem = async (type: string, value: string): Promise<void> => {
+  if (!supabase) return;
   const { error } = await supabase
     .from(SETTINGS_TABLE)
     .insert({ type, value });
@@ -145,6 +145,7 @@ export const addSettingsItem = async (type: string, value: string): Promise<void
 };
 
 export const removeSettingsItem = async (type: string, value: string): Promise<void> => {
+  if (!supabase) return;
   const { error } = await supabase
     .from(SETTINGS_TABLE)
     .delete()
@@ -153,19 +154,63 @@ export const removeSettingsItem = async (type: string, value: string): Promise<v
   if (error) throw error;
 };
 
-// --- Storage ---
+// --- Full Backup & Restore ---
 
-const uploadImage = async (file: File): Promise<string> => {
-  const fileExt = file.name.split('.').pop();
-  const fileName = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}.${fileExt}`;
-  const filePath = `${fileName}`;
+export interface BackupData {
+  timestamp: string;
+  assets: Asset[];
+  settings: {
+    type: string;
+    value: string;
+  }[];
+}
 
-  const { error: uploadError } = await supabase.storage
-    .from(BUCKET_NAME)
-    .upload(filePath, file);
+export const getFullBackup = async (): Promise<BackupData> => {
+  if (!supabase) throw new Error("Supabase not configured");
 
-  if (uploadError) throw uploadError;
+  // 1. Fetch all assets (including deleted)
+  const { data: assetsDb, error: assetsError } = await supabase
+    .from(ASSET_TABLE)
+    .select('*');
+  
+  if (assetsError) throw assetsError;
+  const assets = (assetsDb || []).map(mapAssetFromDb);
 
-  const { data } = supabase.storage.from(BUCKET_NAME).getPublicUrl(filePath);
-  return data.publicUrl;
+  // 2. Fetch all settings
+  const { data: settingsDb, error: settingsError } = await supabase
+    .from(SETTINGS_TABLE)
+    .select('type, value');
+
+  if (settingsError) throw settingsError;
+
+  return {
+    timestamp: new Date().toISOString(),
+    assets,
+    settings: settingsDb || []
+  };
+};
+
+export const restoreFullBackup = async (backup: BackupData): Promise<void> => {
+  if (!supabase) throw new Error("Supabase not configured");
+
+  // 1. Restore Settings
+  if (backup.settings && backup.settings.length > 0) {
+    const { error: settingsError } = await supabase
+      .from(SETTINGS_TABLE)
+      .upsert(backup.settings, { onConflict: 'type, value', ignoreDuplicates: true });
+    
+    if (settingsError) throw settingsError;
+  }
+
+  // 2. Restore Assets
+  if (backup.assets && backup.assets.length > 0) {
+    const assetsToInsert = backup.assets.map(mapAssetToDb);
+    
+    // Upsert = update if exists, insert if not
+    const { error: assetsError } = await supabase
+      .from(ASSET_TABLE)
+      .upsert(assetsToInsert, { onConflict: 'id' });
+    
+    if (assetsError) throw assetsError;
+  }
 };

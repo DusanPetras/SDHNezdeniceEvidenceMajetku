@@ -81,6 +81,7 @@ interface SettingsProps {
   onClose: () => void;
   onExportBackup: () => void;
   onImportBackup: (file: File) => void;
+  isProcessing: boolean;
 }
 
 export const Settings: React.FC<SettingsProps> = ({
@@ -90,7 +91,8 @@ export const Settings: React.FC<SettingsProps> = ({
   conditions, setConditions,
   onClose,
   onExportBackup,
-  onImportBackup
+  onImportBackup,
+  isProcessing
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -130,16 +132,20 @@ export const Settings: React.FC<SettingsProps> = ({
         <div className="flex gap-4">
           <button 
             onClick={onExportBackup}
-            className="flex items-center px-4 py-2 bg-white border border-blue-300 text-blue-700 rounded-md hover:bg-blue-100 font-medium text-sm transition-colors"
+            disabled={isProcessing}
+            className="flex items-center px-4 py-2 bg-white border border-blue-300 text-blue-700 rounded-md hover:bg-blue-100 font-medium text-sm transition-colors disabled:opacity-50"
           >
-            <IconDownload className="w-4 h-4 mr-2" /> Stáhnout kompletní zálohu (.json)
+            <IconDownload className="w-4 h-4 mr-2" /> 
+            {isProcessing ? 'Pracuji...' : 'Stáhnout kompletní zálohu (.json)'}
           </button>
           
           <button 
             onClick={() => fileInputRef.current?.click()}
-            className="flex items-center px-4 py-2 bg-blue-600 text-white border border-transparent rounded-md hover:bg-blue-700 font-medium text-sm transition-colors"
+            disabled={isProcessing}
+            className="flex items-center px-4 py-2 bg-blue-600 text-white border border-transparent rounded-md hover:bg-blue-700 font-medium text-sm transition-colors disabled:opacity-50"
           >
-            <IconUpload className="w-4 h-4 mr-2" /> Nahrát zálohu ze souboru
+            <IconUpload className="w-4 h-4 mr-2" /> 
+            {isProcessing ? 'Pracuji...' : 'Nahrát zálohu ze souboru'}
           </button>
           <input 
             type="file" 

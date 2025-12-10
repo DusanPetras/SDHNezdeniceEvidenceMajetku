@@ -35,13 +35,12 @@ export const AssetForm: React.FC<AssetFormProps> = ({
     description: '',
     imageUrl: '',
     inventoryNumber: '',
-    nextServiceDate: '', // Initialize empty
+    nextServiceDate: '',
   });
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [useUrlInput, setUseUrlInput] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const [selectedFile, setSelectedFile] = useState<File | null>(null);
 
   // Load initial data if editing
   useEffect(() => {
@@ -61,30 +60,27 @@ export const AssetForm: React.FC<AssetFormProps> = ({
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    onSave({
-      ...formData,
-      originalFile: selectedFile || undefined
-    });
+    // Odesíláme data. Obrázek je již v formData.imageUrl jako Base64 řetězec (z handleFileChange)
+    onSave(formData);
   };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files[0]) {
       const file = e.target.files[0];
-      setSelectedFile(file);
       
-      // Create preview
+      // Zpracujeme obrázek (zmenšení + konverze na Base64)
       try {
-        const resizedImage = await processImageFile(file);
-        setFormData(prev => ({ ...prev, imageUrl: resizedImage }));
+        const resizedImageBase64 = await processImageFile(file);
+        setFormData(prev => ({ ...prev, imageUrl: resizedImageBase64 }));
       } catch (error) {
         console.error("Chyba při zpracování obrázku:", error);
+        alert("Nepodařilo se zpracovat obrázek.");
       }
     }
   };
 
   const clearImage = () => {
     setFormData(prev => ({ ...prev, imageUrl: '' }));
-    setSelectedFile(null);
     if (fileInputRef.current) {
         fileInputRef.current.value = '';
     }
@@ -190,7 +186,7 @@ export const AssetForm: React.FC<AssetFormProps> = ({
           </div>
         </div>
 
-        {/* Next Service Date - NEW */}
+        {/* Next Service Date */}
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t pt-4">
             <div className="md:col-span-1">
                  <label className="block text-sm font-medium text-gray-700">Příští revize / údržba</label>
@@ -248,7 +244,7 @@ export const AssetForm: React.FC<AssetFormProps> = ({
                 >
                   <IconImage className="w-8 h-8 text-gray-400 mb-2" />
                   <span className="text-sm text-gray-500">Klikněte pro nahrání fotografie</span>
-                  <span className="text-xs text-gray-400 mt-1">(Uloženo na Cloud)</span>
+                  <span className="text-xs text-gray-400 mt-1">(Uloží se do databáze)</span>
                 </div>
               )}
               

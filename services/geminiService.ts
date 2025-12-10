@@ -1,18 +1,17 @@
 import { GoogleGenAI } from "@google/genai";
 import { Asset } from "../types";
 
-const apiKey = process.env.API_KEY || '';
-const ai = new GoogleGenAI({ apiKey });
+const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
 
 export const generateAssetDescription = async (name: string, category: string): Promise<string> => {
-  if (!apiKey) return "API klíč nenalezen. Nemohu vygenerovat popis.";
+  if (!process.env.API_KEY) return "API klíč nenalezen. Nemohu vygenerovat popis.";
 
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: `Jsi zkušený hasičský technik SDH Nezdenice. Napiš stručný, profesionální technický popis (max 2 věty) pro majetek: "${name}" v kategorii "${category}". Zaměř se na účel použití.`,
     });
-    return response.text.trim();
+    return (response.text || "").trim();
   } catch (error) {
     console.error("Gemini Error:", error);
     return "Nepodařilo se vygenerovat popis.";
@@ -20,7 +19,7 @@ export const generateAssetDescription = async (name: string, category: string): 
 };
 
 export const generateMaintenanceAdvice = async (asset: Asset): Promise<string> => {
-  if (!apiKey) return "API klíč nenalezen.";
+  if (!process.env.API_KEY) return "<li>API klíč nenalezen.</li>";
 
   try {
     const prompt = `
@@ -37,7 +36,7 @@ export const generateMaintenanceAdvice = async (asset: Asset): Promise<string> =
       model: 'gemini-2.5-flash',
       contents: prompt,
     });
-    return response.text;
+    return response.text || "<li>Nepodařilo se načíst doporučení údržby.</li>";
   } catch (error) {
     console.error("Gemini Error:", error);
     return "<li>Nepodařilo se načíst doporučení údržby.</li>";
