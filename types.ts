@@ -61,3 +61,13 @@ export interface AppUser {
   username: string;
   role: UserRole;
 }
+
+// --- Audit Log ---
+
+export interface ActivityLog {
+  id: string;
+  createdAt: string;
+  username: string;
+  action: string;
+  details: string;
+}

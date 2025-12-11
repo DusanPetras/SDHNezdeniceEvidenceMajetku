@@ -1,11 +1,24 @@
 import { GoogleGenAI } from "@google/genai";
 import { Asset } from "../types";
 
-const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+let ai: GoogleGenAI | null = null;
+
+export const initGemini = (apiKey: string) => {
+  if (apiKey) {
+    try {
+      ai = new GoogleGenAI({ apiKey });
+    } catch (error) {
+      console.error("Chyba při inicializaci Gemini AI:", error);
+    }
+  } else {
+    console.warn("Gemini API Key missing.");
+  }
+};
 
 export const generateAssetDescription = async (name: string, category: string): Promise<string> => {
-  if (!process.env.API_KEY) return "API klíč nenalezen. Nemohu vygenerovat popis.";
-
+  if (!ai) {
+    return "Popis nelze vygenerovat (chybí API klíč).";
+  }
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-2.5-flash',
@@ -19,8 +32,9 @@ export const generateAssetDescription = async (name: string, category: string): 
 };
 
 export const generateMaintenanceAdvice = async (asset: Asset): Promise<string> => {
-  if (!process.env.API_KEY) return "<li>API klíč nenalezen.</li>";
-
+  if (!ai) {
+     return "<li>Doporučení nelze načíst (chybí API klíč).</li>";
+  }
   try {
     const prompt = `
       Jako technický správce sboru dobrovolných hasičů, navrhni stručný plán údržby (bodově) pro tento majetek:

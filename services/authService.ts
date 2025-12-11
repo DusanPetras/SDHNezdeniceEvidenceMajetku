@@ -1,6 +1,7 @@
 
 import { supabase } from './supabaseClient';
 import { AppUser } from '../types';
+import { logActivity } from './dataService';
 
 const USERS_TABLE = 'app_users';
 
@@ -25,11 +26,11 @@ export const login = async (username: string, password: string): Promise<AppUser
   // 1. Hash the input password
   const inputHash = await hashPassword(password);
 
-  // 2. Fetch user from DB
+  // 2. Fetch user from DB (Case-insensitive username match)
   const { data, error } = await supabase
     .from(USERS_TABLE)
     .select('*')
-    .eq('username', username)
+    .ilike('username', username.trim()) // Use ilike for case-insensitive match and trim whitespace
     .single();
 
   if (error || !data) {
@@ -39,6 +40,9 @@ export const login = async (username: string, password: string): Promise<AppUser
 
   // 3. Compare Hashes
   if (data.password_hash === inputHash) {
+    // Log the successful login
+    await logActivity(data.username, 'LOGIN', 'Úspěšné přihlášení uživatele');
+    
     return {
       id: data.id,
       username: data.username,

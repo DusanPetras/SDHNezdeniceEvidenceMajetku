@@ -1,9 +1,8 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { Asset } from '../types';
-import { IconSparkles, IconTrash, IconLink, IconImage } from './Icons';
 import { generateAssetDescription } from '../services/geminiService';
 import { processImageFile } from '../services/imageUtils';
+import { IconSparkles, IconUpload } from './Icons';
 
 interface AssetFormProps {
   initialData?: Asset;
@@ -15,39 +14,20 @@ interface AssetFormProps {
   availableConditions: string[];
 }
 
-export const AssetForm: React.FC<AssetFormProps> = ({ 
-  initialData, 
-  onSave, 
-  onCancel,
-  availableManagers,
-  availableLocations,
-  availableCategories,
-  availableConditions
+const AssetForm: React.FC<AssetFormProps> = ({ 
+  initialData, onSave, onCancel, availableManagers, availableLocations, availableCategories, availableConditions
 }) => {
   const [formData, setFormData] = useState<Omit<Asset, 'id'>>({
-    name: '',
-    category: availableCategories[0] || '',
-    location: availableLocations[0] || '',
-    condition: availableConditions[0] || '',
-    purchaseDate: new Date().toISOString().split('T')[0],
-    price: 0,
-    manager: availableManagers[0] || '',
-    description: '',
-    imageUrl: '',
-    inventoryNumber: '',
-    nextServiceDate: '',
+    name: '', category: availableCategories[0] || '', location: availableLocations[0] || '', condition: availableConditions[0] || '',
+    purchaseDate: new Date().toISOString().split('T')[0], price: 0, manager: availableManagers[0] || '',
+    description: '', imageUrl: '', inventoryNumber: '', nextServiceDate: '',
   });
 
   const [isGenerating, setIsGenerating] = useState(false);
-  const [useUrlInput, setUseUrlInput] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // Load initial data if editing
   useEffect(() => {
-    if (initialData) {
-      const { id, ...rest } = initialData;
-      setFormData(rest);
-    }
+    if (initialData) { const { id, ...rest } = initialData; setFormData(rest); }
   }, [initialData]);
 
   const handleAiGenerate = async () => {
@@ -58,268 +38,150 @@ export const AssetForm: React.FC<AssetFormProps> = ({
     setIsGenerating(false);
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    // Odesíláme data. Obrázek je již v formData.imageUrl jako Base64 řetězec (z handleFileChange)
-    onSave(formData);
-  };
-
-  const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files && e.target.files[0]) {
-      const file = e.target.files[0];
-      
-      // Zpracujeme obrázek (zmenšení + konverze na Base64)
-      try {
-        const resizedImageBase64 = await processImageFile(file);
-        setFormData(prev => ({ ...prev, imageUrl: resizedImageBase64 }));
-      } catch (error) {
-        console.error("Chyba při zpracování obrázku:", error);
-        alert("Nepodařilo se zpracovat obrázek.");
-      }
-    }
-  };
-
-  const clearImage = () => {
-    setFormData(prev => ({ ...prev, imageUrl: '' }));
-    if (fileInputRef.current) {
-        fileInputRef.current.value = '';
-    }
+  const processFile = async (file: File) => {
+    try {
+      const b64 = await processImageFile(file);
+      setFormData(prev => ({ ...prev, imageUrl: b64 }));
+    } catch { alert("Chyba obrázku"); }
   };
 
   return (
-    <div className="bg-white rounded-lg shadow-lg p-6 max-w-3xl mx-auto">
-      <h2 className="text-2xl font-bold text-gray-800 mb-6 border-b pb-2">
-        {initialData ? 'Upravit majetek' : 'Přidat nový majetek'}
-      </h2>
-      <form onSubmit={handleSubmit} className="space-y-6">
+    <div className="max-w-4xl mx-auto bg-white rounded-lg shadow-lg overflow-hidden border border-gray-200 mt-6">
+      <div className="bg-gray-50 px-6 py-4 border-b border-gray-200">
+        <h2 className="text-xl font-bold text-gray-900">
+           {initialData ? 'Editace majetku' : 'Nová položka majetku'}
+        </h2>
+      </div>
+
+      <form onSubmit={(e) => { e.preventDefault(); onSave(formData); }} className="p-6 space-y-6">
         
-        {/* Name & Inventory Num */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="md:col-span-2">
-            <label className="block text-sm font-medium text-gray-700">Název majetku</label>
-            <input 
-              required
-              type="text" 
-              className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 focus:border-fire-500 focus:outline-none focus:ring-fire-500"
-              value={formData.name}
-              onChange={(e) => setFormData({...formData, name: e.target.value})}
-              placeholder="Např. Vysílačka Motorola..."
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Evidenční číslo</label>
-            <input 
-              required
-              type="text" 
-              className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 focus:border-fire-500 focus:outline-none focus:ring-fire-500"
-              value={formData.inventoryNumber}
-              onChange={(e) => setFormData({...formData, inventoryNumber: e.target.value})}
-              placeholder="SDH-XXX"
-            />
-          </div>
-        </div>
-
-        {/* Category, Location, Manager */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+        {/* Basic Info */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
            <div>
-            <label className="block text-sm font-medium text-gray-700">Kategorie</label>
-            <select 
-              className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 focus:border-fire-500 focus:outline-none focus:ring-fire-500"
-              value={formData.category}
-              onChange={(e) => setFormData({...formData, category: e.target.value})}
-            >
-              {availableCategories.map(cat => <option key={cat} value={cat}>{cat}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Umístění</label>
-            <select 
-              className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 focus:border-fire-500 focus:outline-none focus:ring-fire-500"
-              value={formData.location}
-              onChange={(e) => setFormData({...formData, location: e.target.value})}
-            >
-              {availableLocations.map(loc => <option key={loc} value={loc}>{loc}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Správce</label>
-            <select 
-              className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 focus:border-fire-500 focus:outline-none focus:ring-fire-500"
-              value={formData.manager}
-              onChange={(e) => setFormData({...formData, manager: e.target.value})}
-            >
-              {availableManagers.map(m => <option key={m} value={m}>{m}</option>)}
-            </select>
-          </div>
-        </div>
-
-        {/* Details: Date, Price, Condition */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Název položky</label>
+              <input required type="text" className="w-full rounded-md border-gray-300 shadow-sm focus:border-fire-500 focus:ring-fire-500 p-2 border" 
+                value={formData.name} onChange={e=>setFormData({...formData, name: e.target.value})} />
+           </div>
            <div>
-            <label className="block text-sm font-medium text-gray-700">Datum pořízení</label>
-            <input 
-              type="date" 
-              className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 focus:border-fire-500 focus:outline-none focus:ring-fire-500"
-              value={formData.purchaseDate}
-              onChange={(e) => setFormData({...formData, purchaseDate: e.target.value})}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Cena (Kč)</label>
-            <input 
-              type="number" 
-              min="0"
-              className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 focus:border-fire-500 focus:outline-none focus:ring-fire-500"
-              value={formData.price}
-              onChange={(e) => setFormData({...formData, price: Number(e.target.value)})}
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700">Stav</label>
-            <select 
-              className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 focus:border-fire-500 focus:outline-none focus:ring-fire-500"
-              value={formData.condition}
-              onChange={(e) => setFormData({...formData, condition: e.target.value})}
-            >
-              {availableConditions.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Evidenční číslo</label>
+              <input required type="text" className="w-full rounded-md border-gray-300 shadow-sm focus:border-fire-500 focus:ring-fire-500 p-2 border" 
+                value={formData.inventoryNumber} onChange={e=>setFormData({...formData, inventoryNumber: e.target.value})} />
+           </div>
         </div>
 
-        {/* Next Service Date */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 border-t pt-4">
-            <div className="md:col-span-1">
-                 <label className="block text-sm font-medium text-gray-700">Příští revize / údržba</label>
-                 <input 
-                  type="date" 
-                  className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 focus:border-fire-500 focus:outline-none focus:ring-fire-500"
-                  value={formData.nextServiceDate || ''}
-                  onChange={(e) => setFormData({...formData, nextServiceDate: e.target.value})}
-                />
-                <p className="text-xs text-gray-500 mt-1">
-                   Datum, kdy se zobrazí upozornění na údržbu.
-                </p>
-            </div>
-            <div className="md:col-span-2">
-                 <label className="block text-sm font-medium text-gray-700">Poznámky k údržbě</label>
-                 <input 
-                  type="text" 
-                  className="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 focus:border-fire-500 focus:outline-none focus:ring-fire-500"
-                  value={formData.maintenanceNotes || ''}
-                  onChange={(e) => setFormData({...formData, maintenanceNotes: e.target.value})}
-                  placeholder="Např. Výměna oleje, tlaková zkouška..."
-                />
-            </div>
+        {/* Categories & State */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+           <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Kategorie</label>
+              <select className="w-full rounded-md border-gray-300 shadow-sm focus:border-fire-500 focus:ring-fire-500 p-2 border bg-white" 
+                value={formData.category} onChange={e=>setFormData({...formData, category: e.target.value})}>
+                 {availableCategories.map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+           </div>
+           <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Umístění</label>
+              <select className="w-full rounded-md border-gray-300 shadow-sm focus:border-fire-500 focus:ring-fire-500 p-2 border bg-white" 
+                value={formData.location} onChange={e=>setFormData({...formData, location: e.target.value})}>
+                 {availableLocations.map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+           </div>
+           <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Stav</label>
+              <select className="w-full rounded-md border-gray-300 shadow-sm focus:border-fire-500 focus:ring-fire-500 p-2 border bg-white" 
+                value={formData.condition} onChange={e=>setFormData({...formData, condition: e.target.value})}>
+                 {availableConditions.map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+           </div>
         </div>
 
-        {/* Image Upload Section */}
-        <div>
-          <label className="block text-sm font-medium text-gray-700 mb-2">Fotografie</label>
-          <div className="flex gap-4 items-start">
-            
-            {/* Image Preview / Upload Area */}
-            <div className="flex-1">
-              {formData.imageUrl ? (
-                <div className="relative group w-full h-64 bg-gray-100 rounded-lg border border-gray-200 overflow-hidden">
-                  <img 
-                    src={formData.imageUrl} 
-                    alt="Preview" 
-                    className="w-full h-full object-contain"
-                  />
-                  <div className="absolute inset-0 bg-black bg-opacity-40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2">
-                    <button 
-                      type="button" 
-                      onClick={clearImage}
-                      className="bg-red-600 text-white p-2 rounded-full hover:bg-red-700"
-                      title="Odstranit obrázek"
-                    >
-                      <IconTrash className="w-5 h-5" />
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <div 
-                  className="w-full h-32 border-2 border-dashed border-gray-300 rounded-lg bg-gray-50 flex flex-col items-center justify-center cursor-pointer hover:bg-gray-100 transition-colors"
-                  onClick={() => fileInputRef.current?.click()}
-                >
-                  <IconImage className="w-8 h-8 text-gray-400 mb-2" />
-                  <span className="text-sm text-gray-500">Klikněte pro nahrání fotografie</span>
-                  <span className="text-xs text-gray-400 mt-1">(Uloží se do databáze)</span>
-                </div>
-              )}
-              
-              <input 
-                type="file" 
-                ref={fileInputRef}
-                accept="image/*"
-                className="hidden"
-                onChange={handleFileChange}
-              />
-            </div>
+        {/* Manager & Price */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+           <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Správce</label>
+              <select className="w-full rounded-md border-gray-300 shadow-sm focus:border-fire-500 focus:ring-fire-500 p-2 border bg-white" 
+                value={formData.manager} onChange={e=>setFormData({...formData, manager: e.target.value})}>
+                 {availableManagers.map(c=><option key={c} value={c}>{c}</option>)}
+              </select>
+           </div>
+           <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Datum pořízení</label>
+              <input type="date" className="w-full rounded-md border-gray-300 shadow-sm focus:border-fire-500 focus:ring-fire-500 p-2 border" 
+                value={formData.purchaseDate} onChange={e=>setFormData({...formData, purchaseDate: e.target.value})} />
+           </div>
+           <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Cena (Kč)</label>
+              <input type="number" className="w-full rounded-md border-gray-300 shadow-sm focus:border-fire-500 focus:ring-fire-500 p-2 border" 
+                value={formData.price} onChange={e=>setFormData({...formData, price: Number(e.target.value)})} />
+           </div>
+        </div>
 
-            {/* URL Toggle Option */}
-            <div className="flex flex-col gap-2">
-              <button
-                type="button"
-                onClick={() => setUseUrlInput(!useUrlInput)}
-                className="text-xs text-blue-600 hover:underline flex items-center whitespace-nowrap"
+        {/* Maintenance */}
+        <div className="bg-orange-50 p-4 rounded-lg border border-orange-100 grid grid-cols-1 md:grid-cols-2 gap-6">
+           <div>
+              <label className="block text-sm font-bold text-orange-900 mb-1">Datum příští revize/údržby</label>
+              <input type="date" className="w-full rounded-md border-orange-200 shadow-sm focus:border-orange-500 focus:ring-orange-500 p-2 border" 
+                value={formData.nextServiceDate||''} onChange={e=>setFormData({...formData, nextServiceDate: e.target.value})} />
+           </div>
+           <div>
+              <label className="block text-sm font-bold text-orange-900 mb-1">Poznámka k údržbě</label>
+              <input type="text" className="w-full rounded-md border-orange-200 shadow-sm focus:border-orange-500 focus:ring-orange-500 p-2 border" 
+                placeholder="Např. Výměna oleje..."
+                value={formData.maintenanceNotes||''} onChange={e=>setFormData({...formData, maintenanceNotes: e.target.value})} />
+           </div>
+        </div>
+
+        {/* Description & Image */}
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+           <div className="md:col-span-2">
+             <div className="flex justify-between items-center mb-1">
+                <label className="block text-sm font-medium text-gray-700">Technický popis</label>
+                <button type="button" onClick={handleAiGenerate} disabled={isGenerating} className="text-fire-600 hover:text-fire-800 text-xs font-bold flex items-center gap-1">
+                  <IconSparkles className="w-3 h-3"/> {isGenerating?'Generuji...':'Vygenerovat AI'}
+                </button>
+             </div>
+             <textarea rows={5} className="w-full rounded-md border-gray-300 shadow-sm focus:border-fire-500 focus:ring-fire-500 p-2 border" 
+               value={formData.description} onChange={e=>setFormData({...formData, description: e.target.value})} />
+           </div>
+
+           <div className="md:col-span-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Fotografie</label>
+              <div 
+                className={`border-2 border-dashed rounded-lg h-32 flex flex-col items-center justify-center cursor-pointer transition-colors ${formData.imageUrl ? 'border-fire-300 bg-fire-50' : 'border-gray-300 hover:border-fire-400 bg-gray-50'}`}
+                onDragOver={e => e.preventDefault()}
+                onDrop={e => { e.preventDefault(); if(e.dataTransfer.files?.[0]) processFile(e.dataTransfer.files[0]); }}
+                onClick={() => fileInputRef.current?.click()}
               >
-                <IconLink className="w-3 h-3 mr-1" />
-                {useUrlInput ? 'Skrýt zadání URL' : 'Vložit URL ručně'}
-              </button>
-            </div>
-          </div>
-          
-          {useUrlInput && (
-            <input 
-              type="text" 
-              className="mt-2 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm focus:border-fire-500 focus:outline-none focus:ring-fire-500"
-              value={formData.imageUrl}
-              onChange={(e) => setFormData({...formData, imageUrl: e.target.value})}
-              placeholder="https://..."
-            />
-          )}
+                 <input type="file" ref={fileInputRef} accept="image/*" className="hidden" onChange={e => {if(e.target.files?.[0]) processFile(e.target.files[0])}} />
+                 
+                 {formData.imageUrl ? (
+                    <div className="relative w-full h-full p-1 group">
+                       <img src={formData.imageUrl} className="w-full h-full object-contain rounded" />
+                       <div className="absolute inset-0 bg-black/40 hidden group-hover:flex items-center justify-center rounded">
+                          <span className="text-white text-xs font-bold">Změnit</span>
+                       </div>
+                       <button type="button" onClick={(e)=>{e.stopPropagation();setFormData({...formData, imageUrl:''})}} className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full w-6 h-6 flex items-center justify-center shadow-md font-bold">&times;</button>
+                    </div>
+                 ) : (
+                    <div className="text-center p-2">
+                       <IconUpload className="w-8 h-8 text-gray-400 mx-auto mb-1" />
+                       <span className="text-xs text-gray-500">Klikni nebo přetáhni</span>
+                    </div>
+                 )}
+              </div>
+           </div>
         </div>
 
-        {/* Description + AI */}
-        <div>
-          <div className="flex justify-between items-center mb-1">
-             <label className="block text-sm font-medium text-gray-700">Popis</label>
-             <button
-               type="button"
-               onClick={handleAiGenerate}
-               disabled={isGenerating || !formData.name}
-               className={`text-xs flex items-center gap-1 px-2 py-1 rounded border ${isGenerating ? 'bg-gray-100' : 'bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100'}`}
-             >
-               <IconSparkles className="w-3 h-3" />
-               {isGenerating ? 'Generuji...' : 'Vygenerovat pomocí Gemini'}
-             </button>
-          </div>
-          <textarea 
-            rows={3}
-            className="block w-full rounded-md border border-gray-300 bg-white px-3 py-2 focus:border-fire-500 focus:outline-none focus:ring-fire-500"
-            value={formData.description}
-            onChange={(e) => setFormData({...formData, description: e.target.value})}
-            placeholder="Detailní popis majetku..."
-          />
-        </div>
-
-        <div className="flex justify-end space-x-3 pt-4 border-t">
-          <button 
-            type="button"
-            onClick={onCancel}
-            className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
-          >
-            Zrušit
-          </button>
-          <button 
-            type="submit"
-            className="px-4 py-2 text-sm font-medium text-white bg-fire-600 rounded-md hover:bg-fire-700 focus:ring-2 focus:ring-offset-2 focus:ring-fire-500"
-          >
-            {initialData ? 'Uložit změny' : 'Vytvořit Majetek'}
-          </button>
+        <div className="flex justify-end gap-3 pt-4 border-t border-gray-200">
+           <button type="button" onClick={onCancel} className="px-5 py-2 border border-gray-300 rounded-md shadow-sm text-gray-700 hover:bg-gray-50 bg-white">
+             Zrušit
+           </button>
+           <button type="submit" className="px-5 py-2 bg-fire-700 hover:bg-fire-800 text-white rounded-md shadow-sm font-bold">
+             Uložit záznam
+           </button>
         </div>
       </form>
     </div>
   );
 };
+
+export default AssetForm;

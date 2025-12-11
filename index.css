@@ -1,0 +1,21 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-gray-50 text-gray-900 antialiased;
+  }
+}
+
+/* Print reset handled via CSS as it affects global document structure */
+@media print {
+  body { 
+    @apply bg-white text-black text-sm;
+  }
+  /* Hide scrollbars and ensure full width */
+  html, body {
+    height: auto;
+    overflow: visible;
+  }
+}
